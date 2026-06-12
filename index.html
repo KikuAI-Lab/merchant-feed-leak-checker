@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Browser-local Google Merchant feed leak checker for CSV, TSV, XML, and optional Shopify exports."
+    >
+    <title>Merchant Feed Leak Checker</title>
+    <link rel="stylesheet" href="./src/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Merchant Feed Leak Checker home">
+        <span class="brand-mark" aria-hidden="true">MF</span>
+        <span>
+          <strong>Merchant Feed Leak Checker</strong>
+          <small>Browser-local feed audit</small>
+        </span>
+      </a>
+      <a class="source-link" href="https://github.com/KikuAI-Lab/merchant-feed-leak-checker">GitHub</a>
+    </header>
+
+    <main class="shell">
+      <section class="intro">
+        <div>
+          <p class="eyebrow">Google Shopping feed leak checker</p>
+          <h1>Find product-feed mistakes before they burn ad spend.</h1>
+          <p class="lead">
+            Drop a Merchant feed and optional Shopify export. The audit runs locally and creates row-level CSV, HTML, and Markdown reports.
+          </p>
+        </div>
+        <div class="privacy-strip" aria-label="Privacy properties">
+          <span>No uploads</span>
+          <span>No API calls</span>
+          <span>No telemetry</span>
+        </div>
+      </section>
+
+      <section class="workspace" aria-label="Feed audit workspace">
+        <div class="upload-grid">
+          <label class="drop-target" id="merchantDrop">
+            <input id="merchantFile" type="file" accept=".csv,.tsv,.txt,.xml,text/csv,text/tab-separated-values,application/xml,text/xml">
+            <span class="slot-label">Required</span>
+            <strong>Merchant feed</strong>
+            <span>CSV, TSV, or RSS/XML export with Google Merchant fields.</span>
+            <em id="merchantFileName">No file selected</em>
+          </label>
+
+          <label class="drop-target" id="shopifyDrop">
+            <input id="shopifyFile" type="file" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values">
+            <span class="slot-label optional">Optional</span>
+            <strong>Shopify export</strong>
+            <span>Add product CSV to catch price and inventory drift against the feed.</span>
+            <em id="shopifyFileName">No file selected</em>
+          </label>
+        </div>
+
+        <div class="toolbar">
+          <div>
+            <strong>Files stay on this machine.</strong>
+            <span>Use a sample or audit local exports directly in the browser.</span>
+          </div>
+          <div class="actions">
+            <button id="sampleButton" type="button" class="secondary">Try sample</button>
+            <button id="runButton" type="button" disabled>Run audit</button>
+            <button id="resetButton" type="button" class="ghost">Reset</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="resultPanel" class="results" hidden aria-live="polite">
+        <div class="result-head">
+          <div>
+            <p class="eyebrow">Audit result</p>
+            <h2 id="resultTitle">No audit yet</h2>
+            <p id="resultSubtitle"></p>
+          </div>
+          <span id="sourceLabel" class="status-pill">Merchant feed</span>
+        </div>
+
+        <div id="parseMessages" class="messages" hidden></div>
+
+        <div class="metrics" aria-label="Summary metrics">
+          <div>
+            <span>Products</span>
+            <strong id="metricProducts">0</strong>
+          </div>
+          <div>
+            <span>Blocking</span>
+            <strong id="metricBlocking">0</strong>
+          </div>
+          <div>
+            <span>Warnings</span>
+            <strong id="metricWarnings">0</strong>
+          </div>
+          <div>
+            <span>Shopify rows</span>
+            <strong id="metricShopify">0</strong>
+          </div>
+        </div>
+
+        <div class="download-row">
+          <button id="downloadCsv" type="button">Download CSV report</button>
+          <button id="downloadHtml" type="button" class="secondary">Download HTML summary</button>
+          <button id="downloadChecklist" type="button" class="secondary">Download fix checklist</button>
+        </div>
+
+        <div class="issue-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Code</th>
+                <th>Row</th>
+                <th>Product</th>
+                <th>Field</th>
+                <th>Observed</th>
+                <th>Next step</th>
+              </tr>
+            </thead>
+            <tbody id="issueRows"></tbody>
+          </table>
+        </div>
+        <p class="table-note">Preview shows up to 50 rows. Download the CSV report for the full issue list.</p>
+      </section>
+
+      <section class="rulebook" aria-label="Rule boundaries">
+        <article>
+          <h2>Deterministic rules</h2>
+          <p>Finds objective product-data failures. The tool does not guess ad performance or policy outcomes.</p>
+        </article>
+        <article>
+          <h2>Local reports</h2>
+          <p>CSV, HTML, and Markdown reports are created in the browser with no backend dependency.</p>
+        </article>
+        <article>
+          <h2>Open source wedge</h2>
+          <p>Use this as a free drop-in checker before building monitors, Shopify apps, or Merchant Center integrations.</p>
+        </article>
+      </section>
+    </main>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

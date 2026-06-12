@@ -1,0 +1,21 @@
+{
+  "name": "merchant-feed-leak-checker",
+  "version": "0.1.0",
+  "description": "Browser-local Google Merchant feed leak checker for CSV, TSV, XML, and optional Shopify product exports.",
+  "type": "module",
+  "private": false,
+  "scripts": {
+    "test": "node --test",
+    "check": "node --test && node scripts/smoke-static.mjs",
+    "preview": "python3 -m http.server 4179"
+  },
+  "keywords": [
+    "google-merchant-center",
+    "google-shopping",
+    "product-feed",
+    "shopify",
+    "browser-local",
+    "csv"
+  ],
+  "license": "MIT"
+}

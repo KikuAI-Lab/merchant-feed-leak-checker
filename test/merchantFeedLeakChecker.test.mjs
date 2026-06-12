@@ -1,0 +1,128 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  analyzeInputs,
+  issuesToCsv,
+  parseMerchantFeed,
+  parseShopifyCsv,
+  summaryToFixChecklist,
+  summaryToHtml
+} from "../src/merchant-feed-leak-checker.js";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+async function read(relativePath) {
+  return readFile(path.join(root, relativePath), "utf8");
+}
+
+const brokenMerchantFeed = `id,title,description,link,image_link,price,sale_price,availability,brand,gtin,item_group_id
+SKU-1001,Canvas Tote,Heavy cotton tote,https://example.com/products/canvas-tote,https://example.com/images/tote.jpg,29.00 USD,35.00 USD,in_stock,Kiku Goods,4006381333931,canvas-tote
+SKU-1002,Travel Mug,Insulated mug,https://example.com/products/travel-mug,not-a-url,0 USD,,available,Kiku Goods,12345,travel-mug
+SKU-1002,Travel Mug Duplicate,Insulated mug duplicate,https://example.com/products/travel-mug,https://example.com/images/mug.jpg,18.00 USD,,out_of_stock,Kiku Goods,4006381333931,travel-mug
+,No ID Product,Missing ID,/products/no-id,https://example.com/images/no-id.jpg,12.00,,in_stock,,,no-id
+SKU-1004,Sticker Pack,Waterproof stickers,https://example.com/products/sticker-pack,https://example.com/images/stickers.jpg,abc USD,,in_stock,,,sticker-pack`;
+
+const validXmlFeed = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
+  <channel>
+    <item>
+      <g:id>SKU-2001</g:id>
+      <g:title>Desk Lamp</g:title>
+      <g:description>Adjustable desk lamp</g:description>
+      <g:link>https://example.com/products/desk-lamp</g:link>
+      <g:image_link>https://example.com/images/desk-lamp.jpg</g:image_link>
+      <g:price>42.00 USD</g:price>
+      <g:availability>in_stock</g:availability>
+      <g:brand>Kiku Goods</g:brand>
+      <g:gtin>4006381333931</g:gtin>
+      <g:item_group_id>desk-lamp</g:item_group_id>
+    </item>
+  </channel>
+</rss>`;
+
+const brokenTsvFeed = `id\ttitle\tdescription\tlink\timage_link\tprice\tavailability\tbrand\tgtin\titem_group_id
+SKU-3001\tBad Link Product\tTSV fixture\tftp://example.com/products/bad-link\thttps://example.com/images/bad-link.jpg\t14.00 USD\tin_stock\tKiku Goods\t4006381333931\tbad-link
+SKU-3002\tMissing Image\tTSV fixture\thttps://example.com/products/missing-image\t\t-4.00 USD\tin_stock\t\t\tmissing-image`;
+
+const shopifyCsv = `Handle,Title,Variant SKU,Variant Price,Variant Inventory Qty,Status
+canvas-tote,Canvas Tote,SKU-1001,25.00,4,active
+travel-mug,Travel Mug,SKU-1002,18.00,5,active
+sticker-pack,Sticker Pack,SKU-1004,6.00,0,active`;
+
+test("parses merchant feeds and detects deterministic leak rules", () => {
+  const result = analyzeInputs({
+    merchantText: brokenMerchantFeed,
+    merchantFileName: "google-feed-broken.csv",
+    shopifyText: shopifyCsv,
+    shopifyFileName: "shopify-products.csv"
+  });
+
+  assert.equal(result.summary.totalProducts, 5);
+  assert.equal(result.summary.shopifyProducts, 3);
+  assert.equal(result.summary.totalIssues, 17);
+
+  const codes = new Set(result.issues.map((issue) => issue.code));
+  assert.ok(codes.has("sale_price_above_price"));
+  assert.ok(codes.has("invalid_url"));
+  assert.ok(codes.has("zero_price"));
+  assert.ok(codes.has("unsupported_availability"));
+  assert.ok(codes.has("invalid_gtin"));
+  assert.ok(codes.has("duplicate_product_id"));
+  assert.ok(codes.has("missing_required_field"));
+  assert.ok(codes.has("malformed_price"));
+  assert.ok(codes.has("missing_identifier_group"));
+  assert.ok(codes.has("shopify_price_mismatch"));
+  assert.ok(codes.has("shopify_availability_mismatch"));
+
+  assert.match(issuesToCsv(result.issues), /shopify_price_mismatch/);
+  assert.match(summaryToHtml(result), /Merchant Feed Check Report/);
+  assert.match(summaryToFixChecklist(result), /Merchant Feed Fix Checklist/);
+  assert.match(summaryToFixChecklist(result), /shopify_price_mismatch/);
+});
+
+test("supports XML and TSV feed inputs", () => {
+  const xmlRecords = parseMerchantFeed(validXmlFeed, "google-feed-valid.xml");
+  assert.equal(xmlRecords.length, 1);
+  assert.equal(xmlRecords[0].id, "SKU-2001");
+  assert.equal(xmlRecords[0].price.amount, 42);
+
+  const tsvResult = analyzeInputs({
+    merchantText: brokenTsvFeed,
+    merchantFileName: "google-feed-broken.tsv"
+  });
+  const codes = new Set(tsvResult.issues.map((issue) => issue.code));
+  assert.ok(codes.has("invalid_url"));
+  assert.ok(codes.has("negative_price"));
+  assert.ok(codes.has("missing_required_field"));
+});
+
+test("parses Shopify product CSV for comparison rows", () => {
+  const records = parseShopifyCsv(shopifyCsv, "shopify-products.csv");
+  assert.equal(records.length, 3);
+  assert.equal(records[0].availability, "in_stock");
+});
+
+test("ships as a standalone static browser-local tool", async () => {
+  const page = await read("index.html");
+  const app = await read("src/main.js");
+  const readme = await read("README.md");
+  const packageJson = await read("package.json");
+
+  assert.match(page, /Merchant Feed Leak Checker/);
+  assert.match(page, /No uploads/);
+  assert.match(page, /No API calls/);
+  assert.match(app, /downloadTextFile/);
+  assert.match(readme, /Runs entirely in the browser/);
+  assert.match(packageJson, /"private": false/);
+
+  for (const source of [page, app, readme]) {
+    assert.doesNotMatch(source, /\/api\/interest/);
+    assert.doesNotMatch(source, /fetch\s*\(/);
+    assert.doesNotMatch(source, /navigator\.sendBeacon/);
+    assert.doesNotMatch(source, /localStorage/);
+    assert.doesNotMatch(source, /kikuai\.dev/);
+  }
+});
