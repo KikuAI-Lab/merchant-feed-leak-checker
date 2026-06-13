@@ -2,7 +2,7 @@
 
 Browser-local repair tool for Google Merchant / Google Shopping product feeds.
 
-Drop a Merchant feed export and, optionally, a Shopify product CSV export. The tool reports deterministic feed leaks and generates local repair artifacts: a fixed feed, patch CSV, and manual-fixes Markdown report.
+Drop a Merchant feed export and, optionally, a Shopify product CSV export. Repair starts automatically in the same browser window and generates local repair artifacts: a fixed feed, patch CSV, and manual-fixes Markdown report.
 
 ## Privacy Boundary
 

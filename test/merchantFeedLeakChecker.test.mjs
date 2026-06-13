@@ -167,6 +167,11 @@ test("ships as a standalone static browser-local tool", async () => {
   assert.match(page, /Download manual fixes/);
   assert.match(app, /downloadTextFile/);
   assert.match(app, /buildRepairResult/);
+  assert.match(page, /Re-run repair/);
+  assert.match(readme, /repair starts automatically/i);
+  assert.match(app, /rerunRepairIfReady/);
+  assert.match(app, /elements\.shopifySourceToggle\.addEventListener\("change", rerunRepairIfReady\)/);
+  assert.match(app, /rerunRepairIfReady\(\);/);
   assert.match(readme, /Runs entirely in the browser/);
   assert.match(packageJson, /"private": false/);
 

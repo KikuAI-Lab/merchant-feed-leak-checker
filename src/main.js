@@ -58,6 +58,7 @@ const elements = {
 
 elements.merchantFile.addEventListener("change", () => ingestSelectedFile("merchant"));
 elements.shopifyFile.addEventListener("change", () => ingestSelectedFile("shopify"));
+elements.shopifySourceToggle.addEventListener("change", rerunRepairIfReady);
 elements.sampleButton.addEventListener("click", loadSample);
 elements.runButton.addEventListener("click", runAudit);
 elements.resetButton.addEventListener("click", resetTool);
@@ -110,6 +111,7 @@ async function ingestFile(slot, file) {
   }
 
   syncRunState();
+  rerunRepairIfReady();
 }
 
 function loadSample() {
@@ -119,8 +121,7 @@ function loadSample() {
   state.shopifyFileName = "sample-shopify-products.csv";
   elements.merchantFileName.textContent = state.merchantFileName;
   elements.shopifyFileName.textContent = state.shopifyFileName;
-  syncRunState();
-  runAudit();
+  rerunRepairIfReady();
 }
 
 function runAudit() {
@@ -157,6 +158,14 @@ function resetTool() {
 
 function syncRunState() {
   elements.runButton.disabled = !state.merchantText.trim();
+}
+
+function rerunRepairIfReady() {
+  syncRunState();
+  if (!state.merchantText.trim()) {
+    return;
+  }
+  runAudit();
 }
 
 function renderResult() {
