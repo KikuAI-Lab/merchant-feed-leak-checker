@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
   analyzeInputs,
+  buildRepairResult,
   issuesToCsv,
   summaryToFixChecklist,
   summaryToHtml
@@ -21,9 +22,18 @@ const result = analyzeInputs({
   shopifyText: shopifyCsv,
   shopifyFileName: "sample-shopify-products.csv"
 });
+const repair = buildRepairResult(result, {
+  merchantText: sampleMerchantFeed,
+  merchantFileName: "sample-google-feed.csv",
+  useShopifyAsSourceOfTruth: true
+});
 
 assert.equal(result.summary.totalProducts, 2);
 assert.ok(result.summary.totalIssues > 0);
+assert.ok(repair.summary.autoFixed > 0);
+assert.match(repair.fixedFeedText, /in_stock/);
+assert.match(repair.patchCsv, /source_row,product_id,field/);
+assert.match(repair.manualFixesMarkdown, /Merchant Feed Manual Fixes/);
 assert.match(issuesToCsv(result.issues), /severity,code,row/);
 assert.match(summaryToHtml(result), /Merchant Feed Check Report/);
 assert.match(summaryToFixChecklist(result), /Merchant Feed Fix Checklist/);
@@ -37,4 +47,4 @@ assert.doesNotMatch(combined, /fetch\s*\(/);
 assert.doesNotMatch(combined, /navigator\.sendBeacon/);
 assert.doesNotMatch(combined, /localStorage/);
 
-console.log("Static smoke passed: parser works and UI has no network or storage hooks.");
+console.log("Static smoke passed: parser and repair work, and UI has no network or storage hooks.");

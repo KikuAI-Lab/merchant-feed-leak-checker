@@ -1,8 +1,8 @@
-# Merchant Feed Leak Checker
+# Merchant Feed Repair Tool
 
-Browser-local checker for Google Merchant / Google Shopping product feeds.
+Browser-local repair tool for Google Merchant / Google Shopping product feeds.
 
-Drop a Merchant feed export and, optionally, a Shopify product CSV export. The tool reports deterministic feed leaks such as missing required fields, duplicate IDs, malformed prices, unsupported availability values, invalid product or image URLs, weak product identifiers, and price or availability drift against Shopify.
+Drop a Merchant feed export and, optionally, a Shopify product CSV export. The tool reports deterministic feed leaks and generates local repair artifacts: a fixed feed, patch CSV, and manual-fixes Markdown report.
 
 ## Privacy Boundary
 
@@ -33,6 +33,25 @@ This is a static file tool. It can be hosted on GitHub Pages, Cloudflare Pages, 
 - Shopify comparison mismatches by SKU, handle, URL handle, or title.
 - Shopify rows missing from the Merchant feed.
 
+## Auto-Repair V1
+
+For CSV and TSV feeds, the tool can generate a repaired feed while preserving headers and row order.
+
+Auto-fixes:
+
+- Availability aliases such as `available` -> `in_stock`.
+- Missing currency on valid prices when the majority feed currency is clear.
+- Shopify price and inventory/availability drift when the user enables Shopify as source of truth.
+
+Manual review only:
+
+- Duplicate or missing product IDs.
+- Malformed, negative, or suspicious prices.
+- `sale_price` greater than regular `price`.
+- Invalid product or image URLs.
+- Invalid GTIN values.
+- XML/RSS feed rewriting.
+
 ## Run Locally
 
 ```bash
@@ -49,10 +68,13 @@ http://localhost:4179/
 
 No install step is required for tests because the repo has no runtime dependencies.
 
-## Reports
+## Repair Artifacts
 
 The UI can download:
 
+- `fixed-merchant-feed.csv` or `fixed-merchant-feed.tsv`
+- `merchant-feed-patch.csv`
+- `merchant-feed-manual-fixes.md`
 - `merchant-feed-issues.csv`
 - `merchant-feed-summary.html`
 - `merchant-feed-fix-checklist.md`

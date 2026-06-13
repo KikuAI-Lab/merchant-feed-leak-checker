@@ -1,5 +1,6 @@
 import {
   analyzeInputs,
+  buildRepairResult,
   issuesToCsv,
   summaryToFixChecklist,
   summaryToHtml
@@ -22,7 +23,8 @@ const state = {
   shopifyText: "",
   merchantFileName: "",
   shopifyFileName: "",
-  result: null
+  result: null,
+  repair: null
 };
 
 const elements = {
@@ -32,6 +34,7 @@ const elements = {
   shopifyFileName: document.querySelector("#shopifyFileName"),
   merchantDrop: document.querySelector("#merchantDrop"),
   shopifyDrop: document.querySelector("#shopifyDrop"),
+  shopifySourceToggle: document.querySelector("#shopifySourceToggle"),
   sampleButton: document.querySelector("#sampleButton"),
   runButton: document.querySelector("#runButton"),
   resetButton: document.querySelector("#resetButton"),
@@ -41,9 +44,12 @@ const elements = {
   sourceLabel: document.querySelector("#sourceLabel"),
   parseMessages: document.querySelector("#parseMessages"),
   metricProducts: document.querySelector("#metricProducts"),
-  metricBlocking: document.querySelector("#metricBlocking"),
-  metricWarnings: document.querySelector("#metricWarnings"),
+  metricAutoFixed: document.querySelector("#metricAutoFixed"),
+  metricManualFixes: document.querySelector("#metricManualFixes"),
   metricShopify: document.querySelector("#metricShopify"),
+  downloadFixedFeed: document.querySelector("#downloadFixedFeed"),
+  downloadPatchCsv: document.querySelector("#downloadPatchCsv"),
+  downloadManualFixes: document.querySelector("#downloadManualFixes"),
   downloadCsv: document.querySelector("#downloadCsv"),
   downloadHtml: document.querySelector("#downloadHtml"),
   downloadChecklist: document.querySelector("#downloadChecklist"),
@@ -55,6 +61,18 @@ elements.shopifyFile.addEventListener("change", () => ingestSelectedFile("shopif
 elements.sampleButton.addEventListener("click", loadSample);
 elements.runButton.addEventListener("click", runAudit);
 elements.resetButton.addEventListener("click", resetTool);
+elements.downloadFixedFeed.addEventListener("click", () => {
+  if (!state.repair?.canAutoRepair) return;
+  downloadTextFile(fixedFeedFileName(), state.repair.fixedFeedText, fixedFeedMimeType());
+});
+elements.downloadPatchCsv.addEventListener("click", () => {
+  if (!state.repair) return;
+  downloadTextFile("merchant-feed-patch.csv", state.repair.patchCsv, "text/csv;charset=utf-8");
+});
+elements.downloadManualFixes.addEventListener("click", () => {
+  if (!state.repair) return;
+  downloadTextFile("merchant-feed-manual-fixes.md", state.repair.manualFixesMarkdown, "text/markdown;charset=utf-8");
+});
 elements.downloadCsv.addEventListener("click", () => {
   if (!state.result) return;
   downloadTextFile("merchant-feed-issues.csv", issuesToCsv(state.result.issues), "text/csv;charset=utf-8");
@@ -114,6 +132,11 @@ function runAudit() {
     shopifyText: state.shopifyText,
     shopifyFileName: state.shopifyFileName || "shopify-products.csv"
   });
+  state.repair = buildRepairResult(state.result, {
+    merchantText: state.merchantText,
+    merchantFileName: state.merchantFileName || "merchant-feed.csv",
+    useShopifyAsSourceOfTruth: Boolean(state.shopifyText && elements.shopifySourceToggle.checked)
+  });
 
   renderResult();
 }
@@ -124,6 +147,7 @@ function resetTool() {
   state.merchantFileName = "";
   state.shopifyFileName = "";
   state.result = null;
+  state.repair = null;
   elements.merchantFileName.textContent = "No file selected";
   elements.shopifyFileName.textContent = "No file selected";
   elements.resultPanel.hidden = true;
@@ -137,18 +161,22 @@ function syncRunState() {
 
 function renderResult() {
   const result = state.result;
+  const repair = state.repair;
   const summary = result.summary;
   const visibleIssues = result.issues.slice(0, 50);
-  const issueText = summary.totalIssues === 1 ? "issue" : "issues";
+  const fixedText = repair.summary.autoFixed === 1 ? "auto-fix" : "auto-fixes";
+  const manualText = repair.summary.manualFixes === 1 ? "manual review" : "manual reviews";
 
   elements.resultPanel.hidden = false;
-  elements.resultTitle.textContent = `${summary.totalIssues} ${issueText} found`;
-  elements.resultSubtitle.textContent = `Parsed ${summary.totalProducts} feed rows${summary.shopifyProducts ? ` and ${summary.shopifyProducts} Shopify rows` : ""}.`;
+  elements.resultTitle.textContent = `${repair.summary.autoFixed} ${fixedText}, ${repair.summary.manualFixes} ${manualText}`;
+  elements.resultSubtitle.textContent = `Parsed ${summary.totalProducts} feed rows${summary.shopifyProducts ? ` and ${summary.shopifyProducts} Shopify rows` : ""}. ${repair.canAutoRepair ? "A fixed feed is ready to download." : "No automatic feed rewrite is available for this input."}`;
   elements.sourceLabel.textContent = summary.shopifyProducts ? "Merchant feed + Shopify export" : "Merchant feed only";
   elements.metricProducts.textContent = String(summary.totalProducts);
-  elements.metricBlocking.textContent = String(summary.blocking);
-  elements.metricWarnings.textContent = String(summary.warning);
+  elements.metricAutoFixed.textContent = String(repair.summary.autoFixed);
+  elements.metricManualFixes.textContent = String(repair.summary.manualFixes);
   elements.metricShopify.textContent = String(summary.shopifyProducts);
+  elements.downloadFixedFeed.disabled = !repair.canAutoRepair;
+  elements.downloadPatchCsv.disabled = repair.patches.length === 0;
 
   renderParseMessages(result.outcome);
   elements.issueRows.replaceChildren(...visibleIssues.map(renderIssueRow));
@@ -234,4 +262,16 @@ function downloadTextFile(fileName, content, mimeType) {
   anchor.click();
   anchor.remove();
   URL.revokeObjectURL(url);
+}
+
+function fixedFeedFileName() {
+  const source = state.merchantFileName || "merchant-feed.csv";
+  const extension = source.toLowerCase().endsWith(".tsv") ? "tsv" : "csv";
+  return `fixed-merchant-feed.${extension}`;
+}
+
+function fixedFeedMimeType() {
+  return state.merchantFileName.toLowerCase().endsWith(".tsv")
+    ? "text/tab-separated-values;charset=utf-8"
+    : "text/csv;charset=utf-8";
 }

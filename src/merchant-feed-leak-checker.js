@@ -400,6 +400,401 @@ export function summaryToFixChecklist(result) {
   ].join("\n");
 }
 
+export function buildRepairResult(result, {
+  merchantText,
+  merchantFileName = "merchant-feed.csv",
+  useShopifyAsSourceOfTruth = false
+} = {}) {
+  const format = result?.outcome?.format || detectFeedFormat(String(merchantText || "").trim(), String(merchantFileName || "").toLowerCase());
+  const issues = result?.issues || [];
+  const merchantRecords = result?.merchantRecords || [];
+  const shopifyRecords = result?.shopifyRecords || [];
+
+  if (format === "xml") {
+    return createRepairResult({
+      canAutoRepair: false,
+      fixedFeedText: "",
+      patches: [],
+      manualIssues: issues,
+      unsupportedReason: "XML automatic repair is not enabled in repair v1. Use the manual fixes report or export CSV/TSV for automatic repair."
+    });
+  }
+
+  const trimmed = String(merchantText || "").trim();
+  if (!trimmed || result?.outcome?.state === RESULT_STATES.UNSUPPORTED_SCHEMA || result?.outcome?.state === RESULT_STATES.PARSE_FAILED) {
+    return createRepairResult({
+      canAutoRepair: false,
+      fixedFeedText: "",
+      patches: [],
+      manualIssues: issues,
+      unsupportedReason: "Automatic repair needs a parsed CSV or TSV Merchant feed."
+    });
+  }
+
+  const delimiter = String(merchantFileName || "").toLowerCase().endsWith(".tsv") ? "\t" : detectDelimiter(trimmed);
+  const rows = parseDelimitedRows(trimmed, delimiter).filter((row) => row.some((cell) => cell.trim()));
+  const headers = rows[0] || [];
+  const headerIndex = buildMerchantHeaderIndex(headers);
+  const repairedRows = rows.map((row) => [...row]);
+  const patches = [];
+  const fixedIssueKeys = new Set();
+  const majorityCurrency = determineMajorityCurrency(merchantRecords);
+  const shopifyIndex = shopifyRecords.length > 0 ? buildShopifyIndex(shopifyRecords) : null;
+
+  for (const record of merchantRecords) {
+    const rowIndex = record.sourceRow - 1;
+    const row = repairedRows[rowIndex];
+    if (!row) {
+      continue;
+    }
+
+    const availabilityFix = canonicalAvailabilityForRepair(record.availability);
+    if (availabilityFix && availabilityFix !== record.availability) {
+      applyRepairPatch({
+        patches,
+        row,
+        headerIndex,
+        record,
+        headerField: "availability",
+        issueField: "availability",
+        issueCodes: ["unsupported_availability"],
+        fixedIssueKeys,
+        newValue: availabilityFix,
+        reason: "Normalize availability alias",
+        confidence: "high"
+      });
+    }
+
+    applyCurrencyRepair({
+      patches,
+      row,
+      headerIndex,
+      record,
+      headerField: "price",
+      issueField: "price",
+      price: record.price,
+      currency: majorityCurrency,
+      fixedIssueKeys
+    });
+
+    applyCurrencyRepair({
+      patches,
+      row,
+      headerIndex,
+      record,
+      headerField: "salePrice",
+      issueField: "sale_price",
+      price: record.salePrice,
+      currency: majorityCurrency,
+      fixedIssueKeys
+    });
+
+    if (useShopifyAsSourceOfTruth && shopifyIndex) {
+      const match = matchShopifyRecord(record, shopifyIndex);
+      if (match.status === SHOPIFY_MATCH_STATUSES.MATCHED) {
+        applyShopifyRepairs({
+          patches,
+          row,
+          headerIndex,
+          record,
+          shopify: match.record,
+          majorityCurrency,
+          fixedIssueKeys
+        });
+      }
+    }
+  }
+
+  const manualIssues = issues.filter((issue) => !fixedIssueKeys.has(repairIssueKey(issue.code, issue.row, issue.field)));
+
+  return createRepairResult({
+    canAutoRepair: patches.length > 0,
+    fixedFeedText: patches.length > 0 ? serializeDelimitedRows(repairedRows, delimiter) : "",
+    patches,
+    manualIssues
+  });
+}
+
+function createRepairResult({
+  canAutoRepair,
+  fixedFeedText,
+  patches,
+  manualIssues,
+  unsupportedReason = ""
+}) {
+  return {
+    canAutoRepair,
+    fixedFeedText,
+    patches,
+    patchCsv: repairPatchesToCsv(patches),
+    manualIssues,
+    manualFixesMarkdown: repairManualFixesToMarkdown(manualIssues, unsupportedReason),
+    unsupportedReason,
+    summary: {
+      autoFixed: patches.length,
+      manualFixes: manualIssues.length,
+      unsupportedReason: unsupportedReason || ""
+    }
+  };
+}
+
+function buildMerchantHeaderIndex(headers) {
+  const fieldToIndex = {};
+  headers.forEach((header, index) => {
+    const field = merchantFieldForHeader(header);
+    if (field && !Object.prototype.hasOwnProperty.call(fieldToIndex, field)) {
+      fieldToIndex[field] = index;
+    }
+  });
+  return fieldToIndex;
+}
+
+function applyCurrencyRepair({
+  patches,
+  row,
+  headerIndex,
+  record,
+  headerField,
+  issueField,
+  price,
+  currency,
+  fixedIssueKeys
+}) {
+  if (!currency || !price?.valid || price.currency || !price.raw) {
+    return;
+  }
+
+  applyRepairPatch({
+    patches,
+    row,
+    headerIndex,
+    record,
+    headerField,
+    issueField,
+    issueCodes: ["missing_price_currency"],
+    fixedIssueKeys,
+    newValue: formatPriceForFeed(price.amount, currency),
+    reason: "Add majority currency",
+    confidence: "high"
+  });
+}
+
+function applyShopifyRepairs({
+  patches,
+  row,
+  headerIndex,
+  record,
+  shopify,
+  majorityCurrency,
+  fixedIssueKeys
+}) {
+  if (record.price?.valid && shopify.price?.valid && Math.abs(record.price.amount - shopify.price.amount) > 0.005) {
+    const currency = record.price.currency || shopify.price.currency || majorityCurrency;
+    const wouldLeaveSalePriceAbovePrice = record.salePrice?.valid && record.salePrice.amount > shopify.price.amount;
+    if (currency && !wouldLeaveSalePriceAbovePrice) {
+      applyRepairPatch({
+        patches,
+        row,
+        headerIndex,
+        record,
+        headerField: "price",
+        issueField: "price",
+        issueCodes: ["shopify_price_mismatch"],
+        fixedIssueKeys,
+        newValue: formatPriceForFeed(shopify.price.amount, currency),
+        reason: "Use Shopify price as source of truth",
+        confidence: "medium"
+      });
+    }
+  }
+
+  const feedAvailability = canonicalAvailabilityForRepair(readRepairField(row, headerIndex, "availability") || record.availability);
+  if (shopify.availability && feedAvailability && feedAvailability !== shopify.availability) {
+    applyRepairPatch({
+      patches,
+      row,
+      headerIndex,
+      record,
+      headerField: "availability",
+      issueField: "availability",
+      issueCodes: ["shopify_availability_mismatch"],
+      fixedIssueKeys,
+      newValue: shopify.availability,
+      reason: "Use Shopify availability as source of truth",
+      confidence: "medium"
+    });
+  }
+}
+
+function applyRepairPatch({
+  patches,
+  row,
+  headerIndex,
+  record,
+  headerField,
+  issueField,
+  issueCodes,
+  fixedIssueKeys,
+  newValue,
+  reason,
+  confidence
+}) {
+  const index = headerIndex[headerField];
+  if (!Number.isInteger(index)) {
+    return;
+  }
+  const oldValue = row[index] ?? "";
+  if (String(oldValue) === String(newValue)) {
+    return;
+  }
+
+  row[index] = String(newValue);
+  patches.push({
+    sourceRow: record.sourceRow,
+    productId: record.id || "(missing)",
+    field: issueField,
+    oldValue,
+    newValue,
+    reason,
+    confidence
+  });
+
+  for (const code of issueCodes) {
+    fixedIssueKeys.add(repairIssueKey(code, record.sourceRow, issueField));
+  }
+}
+
+function readRepairField(row, headerIndex, headerField) {
+  const index = headerIndex[headerField];
+  if (!Number.isInteger(index)) {
+    return "";
+  }
+  return row[index] ?? "";
+}
+
+function determineMajorityCurrency(records) {
+  const counts = new Map();
+  for (const record of records) {
+    for (const price of [record.price, record.salePrice]) {
+      if (price?.valid && price.currency) {
+        counts.set(price.currency, (counts.get(price.currency) || 0) + 1);
+      }
+    }
+  }
+
+  let winner = "";
+  let winnerCount = 0;
+  let tied = false;
+  for (const [currency, count] of counts.entries()) {
+    if (count > winnerCount) {
+      winner = currency;
+      winnerCount = count;
+      tied = false;
+    } else if (count === winnerCount) {
+      tied = true;
+    }
+  }
+
+  return tied ? "" : winner;
+}
+
+function canonicalAvailabilityForRepair(value) {
+  const normalized = normalizeAvailability(value);
+  const aliases = {
+    available: "in_stock",
+    instock: "in_stock",
+    in_stock: "in_stock",
+    outofstock: "out_of_stock",
+    out_stock: "out_of_stock",
+    out_of_stock: "out_of_stock",
+    soldout: "out_of_stock",
+    sold_out: "out_of_stock",
+    preorder: "preorder",
+    pre_order: "preorder",
+    backorder: "backorder",
+    back_order: "backorder"
+  };
+  return aliases[normalized] || "";
+}
+
+function formatPriceForFeed(amount, currency) {
+  return `${Number(amount).toFixed(2)} ${currency}`;
+}
+
+function repairPatchesToCsv(patches) {
+  const headers = [
+    "source_row",
+    "product_id",
+    "field",
+    "old_value",
+    "new_value",
+    "reason",
+    "confidence"
+  ];
+  const rows = patches.map((patch) => [
+    patch.sourceRow,
+    patch.productId,
+    patch.field,
+    patch.oldValue,
+    patch.newValue,
+    patch.reason,
+    patch.confidence
+  ]);
+
+  return [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
+}
+
+function repairManualFixesToMarkdown(manualIssues, unsupportedReason = "") {
+  const lines = [
+    "# Merchant Feed Manual Fixes",
+    "",
+    "Generated locally in the browser. No feed upload is required by the repair tool.",
+    ""
+  ];
+
+  if (unsupportedReason) {
+    lines.push("## Automatic Repair Not Available", "", unsupportedReason, "");
+  }
+
+  if (manualIssues.length === 0) {
+    lines.push("No manual fixes remain after deterministic auto-repair.");
+  } else {
+    lines.push("## Needs Review", "");
+    for (const issue of manualIssues) {
+      lines.push(
+        `- Row ${issue.row || "n/a"} / ${issue.productId || "unknown product"} / ${issue.code}: ${issue.suggestion || issue.message || "Review this issue manually."}`
+      );
+    }
+  }
+
+  lines.push(
+    "",
+    "## Boundaries",
+    "",
+    "- Auto-repair is conservative and deterministic.",
+    "- Duplicate IDs, missing IDs, malformed prices, invalid URLs, invalid GTINs, and sale-price-above-price issues require review.",
+    "- XML automatic repair is intentionally disabled in v1."
+  );
+
+  return lines.join("\n");
+}
+
+function serializeDelimitedRows(rows, delimiter) {
+  return rows.map((row) => row.map((cell) => delimitedEscape(cell, delimiter)).join(delimiter)).join("\n");
+}
+
+function delimitedEscape(value, delimiter) {
+  const stringValue = String(value ?? "");
+  if (stringValue.includes('"') || stringValue.includes("\n") || stringValue.includes("\r") || stringValue.includes(delimiter)) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
+}
+
+function repairIssueKey(code, row, field) {
+  return `${code}:${row}:${field}`;
+}
+
 export function summarize(merchantRecords, shopifyRecords, issues, outcome = null) {
   const countsByCode = {};
   for (const issue of issues) {

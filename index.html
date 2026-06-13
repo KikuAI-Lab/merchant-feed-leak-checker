@@ -7,16 +7,16 @@
       name="description"
       content="Browser-local Google Merchant feed leak checker for CSV, TSV, XML, and optional Shopify exports."
     >
-    <title>Merchant Feed Leak Checker</title>
+    <title>Merchant Feed Repair Tool</title>
     <link rel="stylesheet" href="./src/styles.css">
   </head>
   <body>
     <header class="topbar">
-      <a class="brand" href="./" aria-label="Merchant Feed Leak Checker home">
+      <a class="brand" href="./" aria-label="Merchant Feed Repair Tool home">
         <span class="brand-mark" aria-hidden="true">MF</span>
         <span>
-          <strong>Merchant Feed Leak Checker</strong>
-          <small>Browser-local feed audit</small>
+          <strong>Merchant Feed Repair Tool</strong>
+          <small>Browser-local feed repair</small>
         </span>
       </a>
       <a class="source-link" href="https://github.com/KikuAI-Lab/merchant-feed-leak-checker">GitHub</a>
@@ -25,10 +25,10 @@
     <main class="shell">
       <section class="intro">
         <div>
-          <p class="eyebrow">Google Shopping feed leak checker</p>
-          <h1>Find product-feed mistakes before they burn ad spend.</h1>
+          <p class="eyebrow">Google Shopping feed repair</p>
+          <h1>Fix product-feed mistakes before they burn ad spend.</h1>
           <p class="lead">
-            Drop a Merchant feed and optional Shopify export. The audit runs locally and creates row-level CSV, HTML, and Markdown reports.
+            Drop a Merchant feed and optional Shopify export. The repair runs locally and creates a fixed feed, patch CSV, and manual-fixes report.
           </p>
         </div>
         <div class="privacy-strip" aria-label="Privacy properties">
@@ -60,11 +60,15 @@
         <div class="toolbar">
           <div>
             <strong>Files stay on this machine.</strong>
-            <span>Use a sample or audit local exports directly in the browser.</span>
+            <span>Use a sample or repair local exports directly in the browser.</span>
+            <label class="trust-toggle">
+              <input id="shopifySourceToggle" type="checkbox" checked>
+              <span>Use Shopify as source of truth for price and inventory repairs</span>
+            </label>
           </div>
           <div class="actions">
             <button id="sampleButton" type="button" class="secondary">Try sample</button>
-            <button id="runButton" type="button" disabled>Run audit</button>
+            <button id="runButton" type="button" disabled>Generate repair</button>
             <button id="resetButton" type="button" class="ghost">Reset</button>
           </div>
         </div>
@@ -73,7 +77,7 @@
       <section id="resultPanel" class="results" hidden aria-live="polite">
         <div class="result-head">
           <div>
-            <p class="eyebrow">Audit result</p>
+            <p class="eyebrow">Repair result</p>
             <h2 id="resultTitle">No audit yet</h2>
             <p id="resultSubtitle"></p>
           </div>
@@ -88,12 +92,12 @@
             <strong id="metricProducts">0</strong>
           </div>
           <div>
-            <span>Blocking</span>
-            <strong id="metricBlocking">0</strong>
+            <span>Auto-fixed</span>
+            <strong id="metricAutoFixed">0</strong>
           </div>
           <div>
-            <span>Warnings</span>
-            <strong id="metricWarnings">0</strong>
+            <span>Needs review</span>
+            <strong id="metricManualFixes">0</strong>
           </div>
           <div>
             <span>Shopify rows</span>
@@ -102,7 +106,10 @@
         </div>
 
         <div class="download-row">
-          <button id="downloadCsv" type="button">Download CSV report</button>
+          <button id="downloadFixedFeed" type="button">Download fixed feed</button>
+          <button id="downloadPatchCsv" type="button" class="secondary">Download patch CSV</button>
+          <button id="downloadManualFixes" type="button" class="secondary">Download manual fixes</button>
+          <button id="downloadCsv" type="button" class="secondary">Download issue report</button>
           <button id="downloadHtml" type="button" class="secondary">Download HTML summary</button>
           <button id="downloadChecklist" type="button" class="secondary">Download fix checklist</button>
         </div>
@@ -132,8 +139,8 @@
           <p>Finds objective product-data failures. The tool does not guess ad performance or policy outcomes.</p>
         </article>
         <article>
-          <h2>Local reports</h2>
-          <p>CSV, HTML, and Markdown reports are created in the browser with no backend dependency.</p>
+          <h2>Local repair artifacts</h2>
+          <p>Fixed feed, patch CSV, and Markdown manual-fix reports are created in the browser with no backend dependency.</p>
         </article>
         <article>
           <h2>Open source wedge</h2>

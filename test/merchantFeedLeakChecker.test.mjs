@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   analyzeInputs,
+  buildRepairResult,
   issuesToCsv,
   parseMerchantFeed,
   parseShopifyCsv,
@@ -105,16 +106,67 @@ test("parses Shopify product CSV for comparison rows", () => {
   assert.equal(records[0].availability, "in_stock");
 });
 
+test("generates fixed delimited feed, patch CSV, and manual fixes", () => {
+  const repairInput = `id,title,description,link,image_link,price,sale_price,availability,brand,gtin,item_group_id
+SKU-1001,Canvas Tote,Heavy cotton tote,https://example.com/products/canvas-tote,https://example.com/images/tote.jpg,29.00 USD,20.00 USD,available,Kiku Goods,4006381333931,canvas-tote
+SKU-1002,Travel Mug,Insulated mug,https://example.com/products/travel-mug,https://example.com/images/mug.jpg,18.00,35.00 USD,out_of_stock,Kiku Goods,4006381333931,travel-mug
+SKU-1004,Sticker Pack,Waterproof stickers,https://example.com/products/sticker-pack,https://example.com/images/stickers.jpg,abc USD,,out_of_stock,Kiku Goods,,sticker-pack`;
+
+  const result = analyzeInputs({
+    merchantText: repairInput,
+    merchantFileName: "repair-feed.csv",
+    shopifyText: shopifyCsv,
+    shopifyFileName: "shopify-products.csv"
+  });
+  const repair = buildRepairResult(result, {
+    merchantText: repairInput,
+    merchantFileName: "repair-feed.csv",
+    useShopifyAsSourceOfTruth: true
+  });
+
+  assert.equal(repair.canAutoRepair, true);
+  assert.equal(repair.summary.autoFixed, 4);
+  assert.equal(repair.summary.manualFixes, 2);
+  assert.match(repair.fixedFeedText, /SKU-1001,Canvas Tote,Heavy cotton tote,https:\/\/example\.com\/products\/canvas-tote,https:\/\/example\.com\/images\/tote\.jpg,25\.00 USD,20\.00 USD,in_stock/);
+  assert.match(repair.fixedFeedText, /SKU-1002,Travel Mug,Insulated mug,https:\/\/example\.com\/products\/travel-mug,https:\/\/example\.com\/images\/mug\.jpg,18\.00 USD,35\.00 USD,in_stock/);
+  assert.match(repair.patchCsv, /source_row,product_id,field,old_value,new_value,reason,confidence/);
+  assert.match(repair.patchCsv, /2,SKU-1001,availability,available,in_stock,Normalize availability alias,high/);
+  assert.match(repair.patchCsv, /2,SKU-1001,price,29\.00 USD,25\.00 USD,Use Shopify price as source of truth,medium/);
+  assert.match(repair.patchCsv, /3,SKU-1002,price,18\.00,18\.00 USD,Add majority currency,high/);
+  assert.match(repair.patchCsv, /3,SKU-1002,availability,out_of_stock,in_stock,Use Shopify availability as source of truth,medium/);
+  assert.match(repair.manualFixesMarkdown, /sale_price_above_price/);
+  assert.match(repair.manualFixesMarkdown, /malformed_price/);
+});
+
+test("keeps XML report-only for repair v1", () => {
+  const result = analyzeInputs({
+    merchantText: validXmlFeed,
+    merchantFileName: "google-feed-valid.xml"
+  });
+  const repair = buildRepairResult(result, {
+    merchantText: validXmlFeed,
+    merchantFileName: "google-feed-valid.xml"
+  });
+
+  assert.equal(repair.canAutoRepair, false);
+  assert.equal(repair.fixedFeedText, "");
+  assert.match(repair.manualFixesMarkdown, /XML automatic repair is not enabled/);
+});
+
 test("ships as a standalone static browser-local tool", async () => {
   const page = await read("index.html");
   const app = await read("src/main.js");
   const readme = await read("README.md");
   const packageJson = await read("package.json");
 
-  assert.match(page, /Merchant Feed Leak Checker/);
+  assert.match(page, /Merchant Feed Repair Tool/);
   assert.match(page, /No uploads/);
   assert.match(page, /No API calls/);
+  assert.match(page, /Download fixed feed/);
+  assert.match(page, /Download patch CSV/);
+  assert.match(page, /Download manual fixes/);
   assert.match(app, /downloadTextFile/);
+  assert.match(app, /buildRepairResult/);
   assert.match(readme, /Runs entirely in the browser/);
   assert.match(packageJson, /"private": false/);
 
