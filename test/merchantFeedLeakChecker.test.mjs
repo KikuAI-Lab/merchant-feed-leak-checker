@@ -19,12 +19,12 @@ async function read(relativePath) {
   return readFile(path.join(root, relativePath), "utf8");
 }
 
-const brokenMerchantFeed = `id,title,description,link,image_link,price,sale_price,availability,brand,gtin,item_group_id
-SKU-1001,Canvas Tote,Heavy cotton tote,https://example.com/products/canvas-tote,https://example.com/images/tote.jpg,29.00 USD,35.00 USD,in_stock,Kiku Goods,4006381333931,canvas-tote
-SKU-1002,Travel Mug,Insulated mug,https://example.com/products/travel-mug,not-a-url,0 USD,,available,Kiku Goods,12345,travel-mug
-SKU-1002,Travel Mug Duplicate,Insulated mug duplicate,https://example.com/products/travel-mug,https://example.com/images/mug.jpg,18.00 USD,,out_of_stock,Kiku Goods,4006381333931,travel-mug
-,No ID Product,Missing ID,/products/no-id,https://example.com/images/no-id.jpg,12.00,,in_stock,,,no-id
-SKU-1004,Sticker Pack,Waterproof stickers,https://example.com/products/sticker-pack,https://example.com/images/stickers.jpg,abc USD,,in_stock,,,sticker-pack`;
+const brokenMerchantFeed = `id,title,description,link,image_link,price,sale_price,availability,condition,brand,gtin,item_group_id
+SKU-1001,Canvas Tote,Heavy cotton tote,https://example.com/products/canvas-tote,https://example.com/images/tote.jpg,29.00 USD,35.00 USD,in_stock,new,Kiku Goods,4006381333931,canvas-tote
+SKU-1002,Travel Mug,Insulated mug,https://example.com/products/travel-mug,not-a-url,0 USD,,available,new,Kiku Goods,12345,travel-mug
+SKU-1002,Travel Mug Duplicate,Insulated mug duplicate,https://example.com/products/travel-mug,https://example.com/images/mug.jpg,18.00 USD,,out_of_stock,new,Kiku Goods,4006381333931,travel-mug
+,No ID Product,Missing ID,/products/no-id,https://example.com/images/no-id.jpg,12.00,,in_stock,new,,,no-id
+SKU-1004,Sticker Pack,Waterproof stickers,https://example.com/products/sticker-pack,https://example.com/images/stickers.jpg,abc USD,,in_stock,new,,,sticker-pack`;
 
 const validXmlFeed = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
@@ -44,9 +44,9 @@ const validXmlFeed = `<?xml version="1.0" encoding="UTF-8"?>
   </channel>
 </rss>`;
 
-const brokenTsvFeed = `id\ttitle\tdescription\tlink\timage_link\tprice\tavailability\tbrand\tgtin\titem_group_id
-SKU-3001\tBad Link Product\tTSV fixture\tftp://example.com/products/bad-link\thttps://example.com/images/bad-link.jpg\t14.00 USD\tin_stock\tKiku Goods\t4006381333931\tbad-link
-SKU-3002\tMissing Image\tTSV fixture\thttps://example.com/products/missing-image\t\t-4.00 USD\tin_stock\t\t\tmissing-image`;
+const brokenTsvFeed = `id\ttitle\tdescription\tlink\timage_link\tprice\tavailability\tcondition\tbrand\tgtin\titem_group_id
+SKU-3001\tBad Link Product\tTSV fixture\tftp://example.com/products/bad-link\thttps://example.com/images/bad-link.jpg\t14.00 USD\tin_stock\tnew\tKiku Goods\t4006381333931\tbad-link
+SKU-3002\tMissing Image\tTSV fixture\thttps://example.com/products/missing-image\t\t-4.00 USD\tin_stock\tnew\t\t\tmissing-image`;
 
 const shopifyCsv = `Handle,Title,Variant SKU,Variant Price,Variant Inventory Qty,Status
 canvas-tote,Canvas Tote,SKU-1001,25.00,4,active
@@ -100,6 +100,99 @@ test("supports XML and TSV feed inputs", () => {
   assert.ok(codes.has("missing_required_field"));
 });
 
+test("detects rulebook v2 issues and applies safe local repairs", () => {
+  const longTitle = "Detailed canvas tote ".repeat(9).trim();
+  const longDescription = "Detailed merchant description ".repeat(210).trim();
+  const rulebookFeed = [
+    "id,title,description,link,image_link,price,availability,condition,brand,gtin,item_group_id",
+    csvRow([
+      "RULE-1",
+      "Canvas Tote Free Shipping",
+      "Ready",
+      "https://example.com/products/rule-1",
+      "https://example.com/images/rule-1.jpg",
+      "12.00",
+      "available",
+      "brand_new",
+      "Kiku Goods",
+      "4006381333931",
+      "rule-1"
+    ]),
+    csvRow([
+      "RULE-2",
+      longTitle,
+      longDescription,
+      "https://example.com/images/rule-2.jpg",
+      "https://example.com/products/rule-2.html",
+      "19.99 USD",
+      "in_stock",
+      "fresh",
+      "Kiku Goods",
+      "4006381333931ABC",
+      "rule-2"
+    ]),
+    csvRow([
+      "RULE-3",
+      "Clean Product",
+      "Ready",
+      "https://example.com/products/rule-3",
+      "https://example.com/images/rule-3.jpg",
+      "8.00 USD",
+      "in_stock",
+      "new",
+      "Kiku Goods",
+      "4006381333931",
+      "rule-3"
+    ]),
+    csvRow([
+      "RULE-4",
+      "Unsupported Currency Product",
+      "Ready",
+      "https://example.com/products/rule-4",
+      "https://example.com/images/rule-4.jpg",
+      "11.00 XYZ",
+      "in_stock",
+      "new",
+      "Kiku Goods",
+      "4006381333931",
+      "rule-4"
+    ])
+  ].join("\n");
+
+  const result = analyzeInputs({
+    merchantText: rulebookFeed,
+    merchantFileName: "rulebook-v2.csv"
+  });
+  const repair = buildRepairResult(result, {
+    merchantText: rulebookFeed,
+    merchantFileName: "rulebook-v2.csv"
+  });
+  const codes = new Set(result.issues.map((issue) => issue.code));
+
+  for (const code of [
+    "missing_price_currency",
+    "unsupported_availability",
+    "unsupported_condition",
+    "promotional_title_text",
+    "title_too_long",
+    "description_too_long",
+    "unsupported_price_currency",
+    "product_link_points_to_image",
+    "image_link_points_to_page",
+    "invalid_gtin"
+  ]) {
+    assert.ok(codes.has(code), `Expected ${code}`);
+  }
+
+  assert.equal(repair.summary.autoFixed, 6);
+  assert.match(repair.fixedFeedText, /RULE-1,Canvas Tote,Ready,https:\/\/example\.com\/products\/rule-1,https:\/\/example\.com\/images\/rule-1\.jpg,12\.00 USD,in_stock,new/);
+  assert.match(repair.patchCsv, /Normalize condition alias/);
+  assert.match(repair.patchCsv, /Remove obvious promotional title text/);
+  assert.match(repair.patchCsv, /Trim title to deterministic length limit/);
+  assert.match(repair.manualFixesMarkdown, /unsupported_price_currency/);
+  assert.match(repair.manualFixesMarkdown, /product_link_points_to_image/);
+});
+
 test("parses Shopify product CSV for comparison rows", () => {
   const records = parseShopifyCsv(shopifyCsv, "shopify-products.csv");
   assert.equal(records.length, 3);
@@ -107,10 +200,10 @@ test("parses Shopify product CSV for comparison rows", () => {
 });
 
 test("generates fixed delimited feed, patch CSV, and manual fixes", () => {
-  const repairInput = `id,title,description,link,image_link,price,sale_price,availability,brand,gtin,item_group_id
-SKU-1001,Canvas Tote,Heavy cotton tote,https://example.com/products/canvas-tote,https://example.com/images/tote.jpg,29.00 USD,20.00 USD,available,Kiku Goods,4006381333931,canvas-tote
-SKU-1002,Travel Mug,Insulated mug,https://example.com/products/travel-mug,https://example.com/images/mug.jpg,18.00,35.00 USD,out_of_stock,Kiku Goods,4006381333931,travel-mug
-SKU-1004,Sticker Pack,Waterproof stickers,https://example.com/products/sticker-pack,https://example.com/images/stickers.jpg,abc USD,,out_of_stock,Kiku Goods,,sticker-pack`;
+  const repairInput = `id,title,description,link,image_link,price,sale_price,availability,condition,brand,gtin,item_group_id
+SKU-1001,Canvas Tote,Heavy cotton tote,https://example.com/products/canvas-tote,https://example.com/images/tote.jpg,29.00 USD,20.00 USD,available,new,Kiku Goods,4006381333931,canvas-tote
+SKU-1002,Travel Mug,Insulated mug,https://example.com/products/travel-mug,https://example.com/images/mug.jpg,18.00,35.00 USD,out_of_stock,new,Kiku Goods,4006381333931,travel-mug
+SKU-1004,Sticker Pack,Waterproof stickers,https://example.com/products/sticker-pack,https://example.com/images/stickers.jpg,abc USD,,out_of_stock,new,Kiku Goods,,sticker-pack`;
 
   const result = analyzeInputs({
     merchantText: repairInput,
@@ -127,8 +220,8 @@ SKU-1004,Sticker Pack,Waterproof stickers,https://example.com/products/sticker-p
   assert.equal(repair.canAutoRepair, true);
   assert.equal(repair.summary.autoFixed, 4);
   assert.equal(repair.summary.manualFixes, 2);
-  assert.match(repair.fixedFeedText, /SKU-1001,Canvas Tote,Heavy cotton tote,https:\/\/example\.com\/products\/canvas-tote,https:\/\/example\.com\/images\/tote\.jpg,25\.00 USD,20\.00 USD,in_stock/);
-  assert.match(repair.fixedFeedText, /SKU-1002,Travel Mug,Insulated mug,https:\/\/example\.com\/products\/travel-mug,https:\/\/example\.com\/images\/mug\.jpg,18\.00 USD,35\.00 USD,in_stock/);
+  assert.match(repair.fixedFeedText, /SKU-1001,Canvas Tote,Heavy cotton tote,https:\/\/example\.com\/products\/canvas-tote,https:\/\/example\.com\/images\/tote\.jpg,25\.00 USD,20\.00 USD,in_stock,new/);
+  assert.match(repair.fixedFeedText, /SKU-1002,Travel Mug,Insulated mug,https:\/\/example\.com\/products\/travel-mug,https:\/\/example\.com\/images\/mug\.jpg,18\.00 USD,35\.00 USD,in_stock,new/);
   assert.match(repair.patchCsv, /source_row,product_id,field,old_value,new_value,reason,confidence/);
   assert.match(repair.patchCsv, /2,SKU-1001,availability,available,in_stock,Normalize availability alias,high/);
   assert.match(repair.patchCsv, /2,SKU-1001,price,29\.00 USD,25\.00 USD,Use Shopify price as source of truth,medium/);
@@ -173,6 +266,7 @@ test("ships as a standalone static browser-local tool", async () => {
   assert.match(app, /elements\.shopifySourceToggle\.addEventListener\("change", rerunRepairIfReady\)/);
   assert.match(app, /rerunRepairIfReady\(\);/);
   assert.match(readme, /Runs entirely in the browser/);
+  assert.match(readme, /Rulebook V2/);
   assert.match(packageJson, /"private": false/);
 
   for (const source of [page, app, readme]) {
@@ -183,3 +277,13 @@ test("ships as a standalone static browser-local tool", async () => {
     assert.doesNotMatch(source, /kikuai\.dev/);
   }
 });
+
+function csvRow(cells) {
+  return cells.map((cell) => {
+    const text = String(cell ?? "");
+    if (/[",\n\r]/.test(text)) {
+      return `"${text.replace(/"/g, '""')}"`;
+    }
+    return text;
+  }).join(",");
+}

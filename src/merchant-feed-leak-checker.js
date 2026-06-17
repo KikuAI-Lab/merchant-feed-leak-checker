@@ -14,6 +14,91 @@ const SUPPORTED_AVAILABILITY = new Set([
   "backorder"
 ]);
 
+const SUPPORTED_CONDITIONS = new Set([
+  "new",
+  "used",
+  "refurbished"
+]);
+
+const ISO_4217_CURRENCIES = new Set([
+  "AED", "AFN", "ALL", "AMD", "ANG", "AOA", "ARS", "AUD", "AWG", "AZN",
+  "BAM", "BBD", "BDT", "BGN", "BHD", "BIF", "BMD", "BND", "BOB", "BOV",
+  "BRL", "BSD", "BTN", "BWP", "BYN", "BZD", "CAD", "CDF", "CHE", "CHF",
+  "CHW", "CLF", "CLP", "CNY", "COP", "COU", "CRC", "CUP", "CVE", "CZK",
+  "DJF", "DKK", "DOP", "DZD", "EGP", "ERN", "ETB", "EUR", "FJD", "FKP",
+  "GBP", "GEL", "GHS", "GIP", "GMD", "GNF", "GTQ", "GYD", "HKD", "HNL",
+  "HTG", "HUF", "IDR", "ILS", "INR", "IQD", "IRR", "ISK", "JMD", "JOD",
+  "JPY", "KES", "KGS", "KHR", "KMF", "KPW", "KRW", "KWD", "KYD", "KZT",
+  "LAK", "LBP", "LKR", "LRD", "LSL", "LYD", "MAD", "MDL", "MGA", "MKD",
+  "MMK", "MNT", "MOP", "MRU", "MUR", "MVR", "MWK", "MXN", "MXV", "MYR",
+  "MZN", "NAD", "NGN", "NIO", "NOK", "NPR", "NZD", "OMR", "PAB", "PEN",
+  "PGK", "PHP", "PKR", "PLN", "PYG", "QAR", "RON", "RSD", "RUB", "RWF",
+  "SAR", "SBD", "SCR", "SDG", "SEK", "SGD", "SHP", "SLE", "SOS", "SRD",
+  "SSP", "STN", "SVC", "SYP", "SZL", "THB", "TJS", "TMT", "TND", "TOP",
+  "TRY", "TTD", "TWD", "TZS", "UAH", "UGX", "USD", "USN", "UYI", "UYU",
+  "UYW", "UZS", "VED", "VES", "VND", "VUV", "WST", "XAF", "XCD", "XDR",
+  "XOF", "XPF", "YER", "ZAR", "ZMW", "ZWG"
+]);
+
+const MAX_TITLE_LENGTH = 150;
+const MAX_DESCRIPTION_LENGTH = 5000;
+const PROMOTIONAL_TITLE_PATTERNS = [
+  /\bfree shipping\b/i,
+  /\b(?:\d{1,3}\s*)?%\s*off\b/i,
+  /\bsale\b/i,
+  /\bdiscount\b/i,
+  /\blimited time\b/i,
+  /\bcoupon\b/i,
+  /\bpromo code\b/i
+];
+const IMAGE_FILE_EXTENSIONS = new Set([".avif", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"]);
+const PAGE_FILE_EXTENSIONS = new Set([".aspx", ".htm", ".html", ".php"]);
+const CANONICAL_FEED_FIELDS = [
+  ["id", "id"],
+  ["title", "title"],
+  ["description", "description"],
+  ["link", "link"],
+  ["image_link", "imageLink"],
+  ["price", "price"],
+  ["sale_price", "salePrice"],
+  ["availability", "availability"],
+  ["condition", "condition"],
+  ["brand", "brand"],
+  ["gtin", "gtin"],
+  ["mpn", "mpn"],
+  ["sku", "sku"],
+  ["item_group_id", "itemGroupId"],
+  ["identifier_exists", "identifierExists"]
+];
+const AVAILABILITY_REPAIR_VALUES = new Map([
+  ["available", "in_stock"],
+  ["active", "in_stock"],
+  ["yes", "in_stock"],
+  ["true", "in_stock"],
+  ["1", "in_stock"],
+  ["unavailable", "out_of_stock"],
+  ["sold_out", "out_of_stock"],
+  ["soldout", "out_of_stock"],
+  ["inactive", "out_of_stock"],
+  ["no", "out_of_stock"],
+  ["false", "out_of_stock"],
+  ["0", "out_of_stock"],
+  ["pre_order", "preorder"],
+  ["preorder_available", "preorder"],
+  ["back_order", "backorder"]
+]);
+const CONDITION_REPAIR_VALUES = new Map([
+  ["brand_new", "new"],
+  ["new_with_tags", "new"],
+  ["new_without_tags", "new"],
+  ["preowned", "used"],
+  ["pre_owned", "used"],
+  ["secondhand", "used"],
+  ["second_hand", "used"],
+  ["refurb", "refurbished"],
+  ["renewed", "refurbished"]
+]);
+
 const FIELD_ALIASES = {
   id: ["id", "g:id", "item_id", "product_id"],
   title: ["title", "g:title"],
@@ -28,7 +113,8 @@ const FIELD_ALIASES = {
   mpn: ["mpn", "g:mpn"],
   sku: ["sku", "variant_sku", "variant sku"],
   itemGroupId: ["item_group_id", "g:item_group_id"],
-  identifierExists: ["identifier_exists", "g:identifier_exists"]
+  identifierExists: ["identifier_exists", "g:identifier_exists"],
+  condition: ["condition", "g:condition"]
 };
 
 const SHOPIFY_ALIASES = {
@@ -206,6 +292,8 @@ export function runChecks(merchantRecords, shopifyRecords = []) {
 
     addPriceIssues(record, record.price, "price", issues);
     addPriceIssues(record, record.salePrice, "sale_price", issues, { optional: true });
+    addTextQualityIssues(record, issues);
+    addConditionIssues(record, issues);
 
     if (record.price?.valid && record.salePrice?.valid && record.salePrice.amount > record.price.amount) {
       issues.push(createIssue({
@@ -287,6 +375,16 @@ export function issuesToCsv(issues) {
   return [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
 }
 
+export function buildRepairArtifacts(result) {
+  const plan = buildRepairPlan(result);
+  return {
+    ...plan,
+    fixedFeedCsv: repairPlanToFixedFeedCsv(result, plan),
+    patchCsv: repairPlanToPatchCsv(plan),
+    manualFixesMd: repairPlanToManualFixesMarkdown(result, plan)
+  };
+}
+
 export function summaryToHtml(result) {
   const { summary, issues } = result;
   const issueRows = issues.map((issue) => `
@@ -345,6 +443,184 @@ export function summaryToHtml(result) {
   </table>
 </body>
 </html>`;
+}
+
+function buildRepairPlan(result) {
+  const merchantRecords = Array.isArray(result?.merchantRecords) ? result.merchantRecords : [];
+  const issues = Array.isArray(result?.issues) ? result.issues : [];
+  const recordsByRow = new Map(merchantRecords.map((record) => [record.sourceRow, record]));
+  const inferredCurrency = inferSingleCurrency(merchantRecords);
+  const repairs = [];
+  const manual = [];
+
+  for (const issue of issues) {
+    const record = recordsByRow.get(issue.row);
+    const repair = record ? safeRepairForIssue(issue, record, inferredCurrency) : null;
+    if (repair) {
+      repairs.push(repair);
+    } else {
+      manual.push(manualPatchForIssue(issue));
+    }
+  }
+
+  return {
+    repairs,
+    manual,
+    summary: {
+      applied: repairs.length,
+      manual: manual.length,
+      autoFixableRows: new Set(repairs.map((repair) => repair.row)).size,
+      manualRows: new Set(manual.map((patch) => patch.row)).size
+    }
+  };
+}
+
+function safeRepairForIssue(issue, record, inferredCurrency) {
+  if (issue.code === "unsupported_availability") {
+    const replacement = AVAILABILITY_REPAIR_VALUES.get(normalizeAvailability(record.availability));
+    return replacement
+      ? appliedPatch(issue, replacement, "Mapped common availability wording to a supported Google value.")
+      : null;
+  }
+
+  if (issue.code === "unsupported_condition") {
+    const replacement = CONDITION_REPAIR_VALUES.get(normalizeCondition(record.condition));
+    return replacement
+      ? appliedPatch(issue, replacement, "Mapped common condition wording to a supported Google value.")
+      : null;
+  }
+
+  if (issue.code === "missing_price_currency" && inferredCurrency) {
+    const replacement = priceWithCurrency(record, issue.field, inferredCurrency);
+    return replacement
+      ? appliedPatch(issue, replacement, `Applied inferred feed currency ${inferredCurrency}.`)
+      : null;
+  }
+
+  if (issue.code === "title_too_long") {
+    return appliedPatch(issue, trimText(record.title, MAX_TITLE_LENGTH), "Trimmed title to the deterministic length limit.");
+  }
+
+  if (issue.code === "description_too_long") {
+    return appliedPatch(issue, trimText(record.description, MAX_DESCRIPTION_LENGTH), "Trimmed description to the deterministic length limit.");
+  }
+
+  if (issue.code === "promotional_title_text") {
+    const replacement = cleanPromotionalTitle(record.title);
+    return replacement && replacement !== record.title
+      ? appliedPatch(issue, replacement, "Removed obvious promotional wording from the product title.")
+      : null;
+  }
+
+  return null;
+}
+
+function appliedPatch(issue, replacement, reason) {
+  return {
+    status: "applied",
+    code: issue.code,
+    row: issue.row,
+    productId: issue.productId,
+    field: issue.field,
+    observed: issue.observed,
+    replacement,
+    reason
+  };
+}
+
+function manualPatchForIssue(issue) {
+  return {
+    status: "manual",
+    code: issue.code,
+    row: issue.row,
+    productId: issue.productId,
+    field: issue.field,
+    observed: issue.observed,
+    replacement: "",
+    reason: issue.suggestion || issue.message || "Review this row manually."
+  };
+}
+
+function repairPlanToFixedFeedCsv(result, plan) {
+  const merchantRecords = Array.isArray(result?.merchantRecords) ? result.merchantRecords : [];
+  const replacements = new Map();
+  for (const repair of plan.repairs) {
+    replacements.set(replacementKey(repair.row, repair.field), repair.replacement);
+  }
+
+  const rows = merchantRecords.map((record) => CANONICAL_FEED_FIELDS.map(([header, property]) => {
+    const directReplacement = replacements.get(replacementKey(record.sourceRow, header));
+    if (directReplacement !== undefined) {
+      return directReplacement;
+    }
+    return recordValueForFeedField(record, property);
+  }));
+
+  return [
+    CANONICAL_FEED_FIELDS.map(([header]) => header),
+    ...rows
+  ].map((row) => row.map(csvEscape).join(",")).join("\n");
+}
+
+function repairPlanToPatchCsv(plan) {
+  const headers = [
+    "status",
+    "code",
+    "row",
+    "product_id",
+    "field",
+    "observed",
+    "replacement",
+    "reason"
+  ];
+  const rows = [...plan.repairs, ...plan.manual].map((patch) => [
+    patch.status,
+    patch.code,
+    patch.row,
+    patch.productId,
+    patch.field,
+    patch.observed,
+    patch.replacement,
+    patch.reason
+  ]);
+  return [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
+}
+
+function repairPlanToManualFixesMarkdown(result, plan) {
+  const summary = result?.summary || {};
+  const appliedRows = plan.repairs.slice(0, 10).map((patch) => (
+    `- Row ${patch.row} / ${patch.productId}: ${patch.field} -> ${patch.replacement} (${patch.code})`
+  ));
+  const manualRows = plan.manual.slice(0, 25).map((patch) => (
+    `- Row ${patch.row || "n/a"} / ${patch.productId || "unknown product"}: ${patch.reason} (${patch.code})`
+  ));
+
+  return [
+    "# Merchant Feed Repair Pack",
+    "",
+    "Generated locally in the browser. Raw feed contents are not uploaded by this tool.",
+    "",
+    "## Summary",
+    "",
+    `- Products parsed: ${summary.totalProducts || 0}`,
+    `- Total issues: ${summary.totalIssues || 0}`,
+    `- Safe automatic repairs: ${plan.summary.applied}`,
+    `- Manual fixes: ${plan.summary.manual}`,
+    "",
+    "## Safe Repairs Applied To Fixed Feed CSV",
+    "",
+    appliedRows.length > 0 ? appliedRows.join("\n") : "- No safe automatic repairs were available.",
+    "",
+    "## Manual Fixes",
+    "",
+    manualRows.length > 0 ? manualRows.join("\n") : "- No manual fixes are currently required.",
+    "",
+    "## Boundaries",
+    "",
+    "- The fixed feed CSV applies only deterministic safe repairs.",
+    "- Review the patch CSV before replacing a production feed.",
+    "- This is not a Google approval guarantee."
+  ].join("\n");
 }
 
 export function summaryToFixChecklist(result) {
@@ -462,6 +738,75 @@ export function buildRepairResult(result, {
         newValue: availabilityFix,
         reason: "Normalize availability alias",
         confidence: "high"
+      });
+    }
+
+    const conditionFix = CONDITION_REPAIR_VALUES.get(normalizeCondition(record.condition));
+    if (conditionFix && conditionFix !== record.condition) {
+      applyRepairPatch({
+        patches,
+        row,
+        headerIndex,
+        record,
+        headerField: "condition",
+        issueField: "condition",
+        issueCodes: ["unsupported_condition"],
+        fixedIssueKeys,
+        newValue: conditionFix,
+        reason: "Normalize condition alias",
+        confidence: "high"
+      });
+    }
+
+    const titleTrim = record.title && trimText(record.title, MAX_TITLE_LENGTH);
+    if (titleTrim && titleTrim !== record.title) {
+      applyRepairPatch({
+        patches,
+        row,
+        headerIndex,
+        record,
+        headerField: "title",
+        issueField: "title",
+        issueCodes: ["title_too_long"],
+        fixedIssueKeys,
+        newValue: titleTrim,
+        reason: "Trim title to deterministic length limit",
+        confidence: "medium"
+      });
+    }
+
+    const currentTitle = readRepairField(row, headerIndex, "title") || record.title;
+    const promotionalTitle = cleanPromotionalTitle(currentTitle);
+    if (promotionalTitle && promotionalTitle !== currentTitle) {
+      applyRepairPatch({
+        patches,
+        row,
+        headerIndex,
+        record,
+        headerField: "title",
+        issueField: "title",
+        issueCodes: ["promotional_title_text"],
+        fixedIssueKeys,
+        newValue: promotionalTitle,
+        reason: "Remove obvious promotional title text",
+        confidence: "medium"
+      });
+    }
+
+    const descriptionTrim = record.description && trimText(record.description, MAX_DESCRIPTION_LENGTH);
+    if (descriptionTrim && descriptionTrim !== record.description) {
+      applyRepairPatch({
+        patches,
+        row,
+        headerIndex,
+        record,
+        headerField: "description",
+        issueField: "description",
+        issueCodes: ["description_too_long"],
+        fixedIssueKeys,
+        newValue: descriptionTrim,
+        reason: "Trim description to deterministic length limit",
+        confidence: "medium"
       });
     }
 
@@ -1175,7 +1520,8 @@ function xmlNodeToRow(node) {
     gtin: getXmlText(node, ["g:gtin", "gtin"]),
     mpn: getXmlText(node, ["g:mpn", "mpn"]),
     item_group_id: getXmlText(node, ["g:item_group_id", "item_group_id"]),
-    identifier_exists: getXmlText(node, ["g:identifier_exists", "identifier_exists"])
+    identifier_exists: getXmlText(node, ["g:identifier_exists", "identifier_exists"]),
+    condition: getXmlText(node, ["g:condition", "condition"])
   };
 }
 
@@ -1212,7 +1558,8 @@ function parseMerchantXmlFallback(text, fileName) {
       gtin: extractXmlTag(block, ["g:gtin", "gtin"]),
       mpn: extractXmlTag(block, ["g:mpn", "mpn"]),
       item_group_id: extractXmlTag(block, ["g:item_group_id", "item_group_id"]),
-      identifier_exists: extractXmlTag(block, ["g:identifier_exists", "identifier_exists"])
+      identifier_exists: extractXmlTag(block, ["g:identifier_exists", "identifier_exists"]),
+      condition: extractXmlTag(block, ["g:condition", "condition"])
     };
     return normalizeMerchantRow(row, index + 1, fileName);
   });
@@ -1253,7 +1600,8 @@ function normalizeMerchantRow(row, sourceRow, sourceFile) {
     mpn: normalized.mpn,
     sku: normalized.sku,
     itemGroupId: normalized.itemGroupId,
-    identifierExists: normalized.identifierExists
+    identifierExists: normalized.identifierExists,
+    condition: normalized.condition
   };
 }
 
@@ -1342,6 +1690,104 @@ function addPriceIssues(record, price, field, issues, options = {}) {
       message: "Price has no currency code.",
       suggestion: "Include a currency code in the feed price value."
     }));
+  } else if (!ISO_4217_CURRENCIES.has(price.currency)) {
+    issues.push(createIssue({
+      severity: "blocking",
+      code: "unsupported_price_currency",
+      record,
+      field,
+      observed: price.raw,
+      expected: "ISO 4217 currency code such as USD, EUR, GBP, CAD, AUD, or UAH",
+      message: "Price currency code is not recognized as ISO 4217.",
+      suggestion: "Replace the currency with the correct three-letter ISO 4217 code for this feed target."
+    }));
+  }
+}
+
+function addTextQualityIssues(record, issues) {
+  const titleLength = characterLength(record.title);
+  if (titleLength > MAX_TITLE_LENGTH) {
+    issues.push(createIssue({
+      severity: "warning",
+      code: "title_too_long",
+      record,
+      field: "title",
+      observed: `${titleLength} characters`,
+      expected: `Title should be ${MAX_TITLE_LENGTH} characters or fewer`,
+      message: "Title exceeds the common Google Merchant title length limit.",
+      suggestion: "Shorten the product title while keeping the product type, brand, and key variant details."
+    }));
+  }
+
+  const descriptionLength = characterLength(record.description);
+  if (descriptionLength > MAX_DESCRIPTION_LENGTH) {
+    issues.push(createIssue({
+      severity: "warning",
+      code: "description_too_long",
+      record,
+      field: "description",
+      observed: `${descriptionLength} characters`,
+      expected: `Description should be ${MAX_DESCRIPTION_LENGTH} characters or fewer`,
+      message: "Description exceeds the common Google Merchant description length limit.",
+      suggestion: "Trim the description to product facts that help matching and approval."
+    }));
+  }
+
+  const promotionalPhrase = findPromotionalTitlePhrase(record.title);
+  if (promotionalPhrase) {
+    issues.push(createIssue({
+      severity: "warning",
+      code: "promotional_title_text",
+      record,
+      field: "title",
+      observed: promotionalPhrase,
+      expected: "Product title without promotional claims",
+      message: "Title contains promotional text that can cause product-data quality issues.",
+      suggestion: "Move promotion, sale, or shipping claims out of the title and keep the title factual."
+    }));
+  }
+
+  if (hasExcessiveTitleCapitals(record.title)) {
+    issues.push(createIssue({
+      severity: "warning",
+      code: "excessive_title_capitals",
+      record,
+      field: "title",
+      observed: "mostly uppercase title",
+      expected: "Normal product-title capitalization",
+      message: "Title appears to use excessive capitalization.",
+      suggestion: "Use normal capitalization unless the uppercase text is an actual brand or model identifier."
+    }));
+  }
+}
+
+function addConditionIssues(record, issues) {
+  if (!record.condition) {
+    issues.push(createIssue({
+      severity: "warning",
+      code: "missing_condition",
+      record,
+      field: "condition",
+      observed: "",
+      expected: "new, used, or refurbished",
+      message: "Product condition is missing.",
+      suggestion: "Add condition when the product feed target requires it; use new, used, or refurbished."
+    }));
+    return;
+  }
+
+  const normalizedCondition = normalizeCondition(record.condition);
+  if (!SUPPORTED_CONDITIONS.has(normalizedCondition)) {
+    issues.push(createIssue({
+      severity: "blocking",
+      code: "unsupported_condition",
+      record,
+      field: "condition",
+      observed: record.condition,
+      expected: "new, used, or refurbished",
+      message: "Product condition value is not supported.",
+      suggestion: "Use one of the supported Google Merchant condition values."
+    }));
   }
 }
 
@@ -1350,7 +1796,8 @@ function addUrlIssue(record, field, value, issues) {
     return;
   }
 
-  if (!isHttpUrl(value)) {
+  const url = parseHttpUrl(value);
+  if (!url) {
     issues.push(createIssue({
       severity: "blocking",
       code: "invalid_url",
@@ -1360,6 +1807,33 @@ function addUrlIssue(record, field, value, issues) {
       expected: "Absolute http or https URL",
       message: `${field} is not a valid absolute URL.`,
       suggestion: "Use a full product or image URL starting with http:// or https://."
+    }));
+    return;
+  }
+
+  if (field === "link" && hasImageFileExtension(url.pathname)) {
+    issues.push(createIssue({
+      severity: "warning",
+      code: "product_link_points_to_image",
+      record,
+      field,
+      observed: value,
+      expected: "Product landing page URL",
+      message: "Product link appears to point directly to an image file.",
+      suggestion: "Use the product landing page URL for link and keep image files in image_link."
+    }));
+  }
+
+  if (field === "image_link" && hasPageFileExtension(url.pathname)) {
+    issues.push(createIssue({
+      severity: "warning",
+      code: "image_link_points_to_page",
+      record,
+      field,
+      observed: value,
+      expected: "Direct image asset URL",
+      message: "Image link appears to point to a web page instead of an image asset.",
+      suggestion: "Use a direct product image URL for image_link."
     }));
   }
 }
@@ -1788,6 +2262,10 @@ function normalizeAvailability(value) {
   return String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
 }
 
+function normalizeCondition(value) {
+  return String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
 function normalizeHeader(value) {
   return String(value || "")
     .replace(/^\uFEFF/, "")
@@ -1807,11 +2285,15 @@ function coalesce(row, aliases) {
 }
 
 function isHttpUrl(value) {
+  return Boolean(parseHttpUrl(value));
+}
+
+function parseHttpUrl(value) {
   try {
-    const url = new URL(String(value));
-    return url.protocol === "http:" || url.protocol === "https:";
+    const url = new URL(String(value).trim());
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -1841,7 +2323,12 @@ function normalizeBoolean(value) {
 }
 
 function isValidGtin(value) {
-  const digits = String(value || "").replace(/\D/g, "");
+  const raw = String(value || "");
+  if (/[^0-9\s-]/.test(raw)) {
+    return false;
+  }
+
+  const digits = raw.replace(/\D/g, "");
   if (![8, 12, 13, 14].includes(digits.length)) {
     return false;
   }
@@ -1854,6 +2341,103 @@ function isValidGtin(value) {
   }
   const checkDigit = (10 - (sum % 10)) % 10;
   return checkDigit === Number(digits[digits.length - 1]);
+}
+
+function inferSingleCurrency(records) {
+  const currencies = new Set();
+  for (const record of records) {
+    if (record.price?.currency) {
+      currencies.add(record.price.currency);
+    }
+    if (record.salePrice?.currency) {
+      currencies.add(record.salePrice.currency);
+    }
+  }
+  return currencies.size === 1 ? [...currencies][0] : "";
+}
+
+function priceWithCurrency(record, field, currency) {
+  const price = field === "sale_price" ? record.salePrice : record.price;
+  if (!price?.valid || !price.raw || price.currency) {
+    return "";
+  }
+  return `${price.raw} ${currency}`;
+}
+
+function trimText(value, maxLength) {
+  const chars = [...String(value || "").trim()];
+  if (chars.length <= maxLength) {
+    return chars.join("");
+  }
+
+  const hardTrimmed = chars.slice(0, maxLength).join("");
+  const lastSpace = hardTrimmed.lastIndexOf(" ");
+  if (lastSpace >= Math.floor(maxLength * 0.75)) {
+    return hardTrimmed.slice(0, lastSpace).trim();
+  }
+  return hardTrimmed.trim();
+}
+
+function cleanPromotionalTitle(title) {
+  let cleaned = String(title || "");
+  for (const pattern of PROMOTIONAL_TITLE_PATTERNS) {
+    cleaned = cleaned.replace(pattern, " ");
+  }
+  return cleaned.replace(/\s{2,}/g, " ").trim();
+}
+
+function replacementKey(row, field) {
+  return `${row}:${field}`;
+}
+
+function recordValueForFeedField(record, property) {
+  if (property === "price") {
+    return record.price?.raw || "";
+  }
+  if (property === "salePrice") {
+    return record.salePrice?.raw || "";
+  }
+  return record[property] || "";
+}
+
+function characterLength(value) {
+  return [...String(value || "")].length;
+}
+
+function findPromotionalTitlePhrase(title) {
+  const value = String(title || "");
+  for (const pattern of PROMOTIONAL_TITLE_PATTERNS) {
+    const match = value.match(pattern);
+    if (match) {
+      return match[0];
+    }
+  }
+  return "";
+}
+
+function hasExcessiveTitleCapitals(title) {
+  const letters = [...String(title || "")].filter((char) => /[A-Za-z]/.test(char));
+  if (letters.length < 12) {
+    return false;
+  }
+
+  const uppercase = letters.filter((char) => char >= "A" && char <= "Z").length;
+  return uppercase / letters.length >= 0.85;
+}
+
+function hasImageFileExtension(pathname) {
+  return IMAGE_FILE_EXTENSIONS.has(fileExtension(pathname));
+}
+
+function hasPageFileExtension(pathname) {
+  return PAGE_FILE_EXTENSIONS.has(fileExtension(pathname));
+}
+
+function fileExtension(pathname) {
+  const lowerPath = String(pathname || "").toLowerCase();
+  const lastSegment = lowerPath.split("/").pop() || "";
+  const dotIndex = lastSegment.lastIndexOf(".");
+  return dotIndex >= 0 ? lastSegment.slice(dotIndex) : "";
 }
 
 function addUnique(map, key, record) {

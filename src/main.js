@@ -6,12 +6,12 @@ import {
   summaryToHtml
 } from "./merchant-feed-leak-checker.js";
 
-const sampleMerchantFeed = `id,title,description,link,image_link,price,sale_price,availability,brand,gtin,item_group_id
-SKU-1001,Canvas Tote,Heavy cotton tote,https://example.com/products/canvas-tote,https://example.com/images/tote.jpg,29.00 USD,35.00 USD,in_stock,Kiku Goods,4006381333931,canvas-tote
-SKU-1002,Travel Mug,Insulated mug,https://example.com/products/travel-mug,not-a-url,0 USD,,available,Kiku Goods,12345,travel-mug
-SKU-1002,Travel Mug Duplicate,Insulated mug duplicate,https://example.com/products/travel-mug,https://example.com/images/mug.jpg,18.00 USD,,out_of_stock,Kiku Goods,4006381333931,travel-mug
-,No ID Product,Missing ID,/products/no-id,https://example.com/images/no-id.jpg,12.00,,in_stock,,,no-id
-SKU-1004,Sticker Pack,Waterproof stickers,https://example.com/products/sticker-pack,https://example.com/images/stickers.jpg,abc USD,,in_stock,,,sticker-pack`;
+const sampleMerchantFeed = `id,title,description,link,image_link,price,sale_price,availability,condition,brand,gtin,item_group_id
+SKU-1001,Canvas Tote,Heavy cotton tote,https://example.com/products/canvas-tote,https://example.com/images/tote.jpg,29.00 USD,35.00 USD,in_stock,new,Kiku Goods,4006381333931,canvas-tote
+SKU-1002,Travel Mug Free Shipping,Insulated mug,https://example.com/products/travel-mug,not-a-url,0 USD,,available,brand_new,Kiku Goods,12345,travel-mug
+SKU-1002,Travel Mug Duplicate,Insulated mug duplicate,https://example.com/products/travel-mug,https://example.com/images/mug.jpg,18.00 USD,,out_of_stock,new,Kiku Goods,4006381333931,travel-mug
+,No ID Product,Missing ID,/products/no-id,https://example.com/images/no-id.jpg,12.00,,in_stock,new,,,no-id
+SKU-1004,Sticker Pack,Waterproof stickers,https://example.com/products/sticker-pack,https://example.com/images/stickers.jpg,abc USD,,in_stock,new,,,sticker-pack`;
 
 const sampleShopifyCsv = `Handle,Title,Variant SKU,Variant Price,Variant Inventory Qty,Status
 canvas-tote,Canvas Tote,SKU-1001,25.00,4,active

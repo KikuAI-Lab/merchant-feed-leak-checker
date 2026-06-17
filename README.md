@@ -25,31 +25,42 @@ This is a static file tool. It can be hosted on GitHub Pages, Cloudflare Pages, 
 - Missing required Merchant fields.
 - Duplicate product IDs.
 - Malformed, negative, zero, or currency-less prices.
+- Unsupported ISO currency codes.
 - `sale_price` greater than regular `price`.
 - Unsupported `availability` values.
+- Missing or unsupported `condition` values.
+- Overlong title or description text.
+- Promotional title claims such as free shipping, sale, discount, coupon, or percent-off wording.
+- Excessive title capitalization.
 - Invalid product and image URLs.
+- Product links that point directly to images and image links that point to page URLs.
 - Missing or contradictory identifier groups.
 - GTIN format and check-digit issues.
 - Shopify comparison mismatches by SKU, handle, URL handle, or title.
 - Shopify rows missing from the Merchant feed.
 
-## Auto-Repair V1
+## Rulebook V2 And Auto-Repair
 
 For CSV and TSV feeds, the tool can generate a repaired feed while preserving headers and row order.
 
 Auto-fixes:
 
 - Availability aliases such as `available` -> `in_stock`.
+- Condition aliases such as `brand_new` -> `new`.
 - Missing currency on valid prices when the majority feed currency is clear.
+- Obvious promotional title text.
+- Overlong titles and descriptions through deterministic trimming.
 - Shopify price and inventory/availability drift when the user enables Shopify as source of truth.
 
 Manual review only:
 
 - Duplicate or missing product IDs.
 - Malformed, negative, or suspicious prices.
+- Unsupported currency codes.
 - `sale_price` greater than regular `price`.
 - Invalid product or image URLs.
 - Invalid GTIN values.
+- Missing condition values.
 - XML/RSS feed rewriting.
 
 ## Run Locally
