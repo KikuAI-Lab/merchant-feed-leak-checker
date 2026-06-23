@@ -1,17 +1,35 @@
-# Merchant Feed Repair Tool
+# Merchant Feed Leak Checker
 
-Browser-local repair tool for Google Merchant / Google Shopping product feeds.
+Merchant Feed Leak Checker is a standalone browser-local triage and safe-repair tool for Google Merchant feed exports.
+
+**[Run locally](#quickstart)**
+
+[Supported inputs](#supported-inputs) · [Repair artifacts](#repair-artifacts) · [Privacy boundary](#privacy-boundary)
 
 Drop a Merchant feed export and, optionally, a Shopify product CSV export. Repair starts automatically in the same browser window and generates local repair artifacts: a fixed feed, patch CSV, and manual-fixes Markdown report.
 
-## Privacy Boundary
+## Quickstart
 
-- Runs entirely in the browser.
-- No uploads, accounts, API calls, trackers, or telemetry.
-- Feed rows, product names, prices, URLs, SKUs, and file names stay on the user's machine.
-- Exported reports are generated locally with `Blob` downloads.
+```bash
+npm test
+npm run check
+npm run preview
+```
 
-This is a static file tool. It can be hosted on GitHub Pages, Cloudflare Pages, Netlify, or any plain static server.
+Then open:
+
+```text
+http://localhost:4179/
+```
+
+Expected test result:
+
+```text
+# tests 7
+# pass 7
+```
+
+No install step is required for tests because the repo has no runtime dependencies.
 
 ## Supported Inputs
 
@@ -63,22 +81,6 @@ Manual review only:
 - Missing condition values.
 - XML/RSS feed rewriting.
 
-## Run Locally
-
-```bash
-npm test
-npm run check
-npm run preview
-```
-
-Then open:
-
-```text
-http://localhost:4179/
-```
-
-No install step is required for tests because the repo has no runtime dependencies.
-
 ## Repair Artifacts
 
 The UI can download:
@@ -90,8 +92,21 @@ The UI can download:
 - `merchant-feed-summary.html`
 - `merchant-feed-fix-checklist.md`
 
+## Privacy Boundary
+
+- Runs entirely in the browser.
+- No uploads, accounts, API calls, trackers, or telemetry.
+- Feed rows, product names, prices, URLs, SKUs, and file names stay on the user's machine.
+- Exported reports are generated locally with `Blob` downloads.
+
+This is a static file tool. It can be hosted on GitHub Pages, Cloudflare Pages, Netlify, or any plain static server.
+
 ## Boundaries
 
 This tool is deterministic file triage, not a Google approval guarantee. It does not check live landing pages, policy violations, account suspensions, shipping or tax settings, ad performance, or Merchant Center account state.
 
 Not affiliated with Google, Shopify, or Merchant Center.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
