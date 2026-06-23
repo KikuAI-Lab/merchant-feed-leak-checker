@@ -6,6 +6,8 @@ Merchant Feed Leak Checker is a standalone browser-local triage and safe-repair 
 
 [Docs](#checks) · [Examples](#quickstart) · [Repair artifacts](#repair-artifacts)
 
+![Merchant Feed Leak Checker browser-local Google Merchant feed triage interface](docs/assets/readme-screenshot.png)
+
 Sample output:
 
 ```text
