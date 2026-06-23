@@ -4,7 +4,14 @@ Merchant Feed Leak Checker is a standalone browser-local triage and safe-repair 
 
 **[Run locally](#quickstart)**
 
-[Supported inputs](#supported-inputs) · [Repair artifacts](#repair-artifacts) · [Privacy boundary](#privacy-boundary)
+[Docs](#checks) · [Examples](#quickstart) · [Repair artifacts](#repair-artifacts)
+
+Sample output:
+
+```text
+Verdict: repair artifacts generated
+Exports: fixed feed, patch CSV, manual-fixes Markdown report
+```
 
 Drop a Merchant feed export and, optionally, a Shopify product CSV export. Repair starts automatically in the same browser window and generates local repair artifacts: a fixed feed, patch CSV, and manual-fixes Markdown report.
 
